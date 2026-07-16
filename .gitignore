@@ -1,0 +1,29 @@
+# ── Python ────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environment — every developer creates their own (see README)
+env/
+venv/
+.venv/
+
+# ── Database ──────────────────────────────────────────
+# The SQLite file is NOT committed — it's rebuilt from
+# migrations with `flask db upgrade` (see README).
+instance/
+*.db
+*.sqlite3
+
+# ── Environment variables / secrets ───────────────────
+.env
+.env.*
+
+# ── Editor / OS noise ─────────────────────────────────
+.DS_Store
+.vscode/
+.idea/
+
+# ── Frontend (client/ also has its own .gitignore) ────
+client/node_modules/
+client/dist/

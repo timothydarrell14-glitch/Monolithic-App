@@ -13,3 +13,13 @@ class Book(classModel):
 
     def  __repr__(self): # Define the string representation of the Book object for debugging purposes
         return f"<Book {self.title} by {self.author}>"
+
+    def to_dict(self):
+        # Serialize this Book object into a plain dictionary.
+        # jsonify() can only convert basic types (dict/list/str/int...),
+        # NOT a custom Book object — so we translate here, in one place.
+        return {
+            "id": self.id,
+            "title": self.title,
+            "author": self.author,
+        }

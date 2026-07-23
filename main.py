@@ -1,4 +1,4 @@
-from flask import Flask, json, jsonify, request
+from flask import Flask, jsonify, request
 from extensions import db, ma, jwt
 from flask_migrate import Migrate
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity

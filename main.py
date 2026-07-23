@@ -1,16 +1,20 @@
-from flask import Flask, jsonify, request
-from extensions import db
+from flask import Flask, json, jsonify, request
+from extensions import db, ma, jwt
 from flask_migrate import Migrate
 from controllers.book_controller import BookController
-# from models.book import Book
+from schemas.book_schema import book_schema, books_schema
 
 app = Flask(__name__)
 # Configure the database URI (replace with your actual database URI)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///books.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['JWT_SECRET_KEY'] = 'your_jwt_secret_key'  # Change this to a secure key in production
 
 # Initialize the database with the Flask app
 db.init_app(app)
+ma.init_app(app)
+jwt.init_app(app)
+
 
 # initialize Flask-Migrate with the app and database
 migrate = Migrate(app, db)
@@ -22,40 +26,31 @@ def home():
 @app.route('/books')
 def get_books():
     books = BookController.get_all_books()
-    return jsonify(books)
+    return jsonify(books_schema.dump(books))
+
 
 @app.route('/books/<int:book_id>')
 def get_book(book_id):
     book = BookController.get_book_by_id(book_id)
-    return jsonify(book) if book else jsonify({"error": "Book not found"}), 404
+    if book:
+        return jsonify(book_schema.dump(book))
+    return jsonify({"error": "Book not found"}), 404
 
 @app.route('/books', methods=['POST'])
 def create_book():
-    new_book = {
-        "id": request.json.get("id"),
-        "title": request.json.get("title"),
-        "author": request.json.get("author")
-    }
-    new_book = BookController.create_book(new_book)
-    return jsonify(new_book), 201
+    new_book = BookController.create_book(request.json)
+    return jsonify(book_schema.dump(new_book)), 201
 
 @app.route('/books/<int:book_id>', methods=['PUT'])
 def update_book(book_id):
-    book = BookController.get_book_by_id(book_id)
+    # The controller already applies defaults for any missing fields,
+    # so we can hand it the raw JSON body directly.
+    updated_book = BookController.update_book(book_id, request.json)
 
-    # update the book if present 
-    if book:
-        update_book = {
-            "title": request.json.get("title", book["title"]),
-            "author": request.json.get("author", book["author"])
-        }
+    if updated_book:
+        return jsonify(book_schema.dump(updated_book)), 200
 
-        updated_book = BookController.update_book(book_id, update_book)
-        return jsonify(updated_book), 200
-
-
-    if not book:
-        return jsonify({"error": "Book not found"}), 404
+    return jsonify({"error": "Book not found"}), 404
 
 @app.route('/books/<int:book_id>', methods=['DELETE'])
 def delete_book(book_id):

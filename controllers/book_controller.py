@@ -15,7 +15,7 @@ class BookController:
         new_book = Book(title=book_data["title"], author=book_data["author"])
         db.session.add(new_book)
         db.session.commit()
-        return new_book
+        return new_book  # return the ORM object; the route decides how to serialize it
 
     # Define a method that retrieves a book by its ID from the database
     @classmethod

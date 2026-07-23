@@ -83,10 +83,12 @@ Here's exactly where each layer lives in our codebase:
 
 | MVC Layer | In this project | File | Responsibility |
 |-----------|-----------------|------|----------------|
-| **Model** | The `Book` class | [`models/book.py`](models/book.py) | Defines the `books` table + `to_dict()` |
-| **View** | JSON serialization | `jsonify(...)` + `to_dict()` | Turns data into the JSON response |
-| **Controller** | `BookController` | [`controllers/book_controller.py`](controllers/book_controller.py) | The database logic (CRUD operations) |
+| **Model** | The `Book` / `User` classes | [`models/`](models/) | Define the `books` and `users` tables |
+| **View** | Marshmallow schemas | [`schemas/`](schemas/) | Turn model objects into the JSON response |
+| **Controller** | `BookController`, `AuthController` | [`controllers/`](controllers/) | The database logic (CRUD, register, authenticate) |
 | **Routes** | Flask `@app.route` functions | [`main.py`](main.py) | Map URLs to controller calls |
+
+> 🔁 **The `schemas/` folder *is* the View layer.** When we started, serialization lived in a `to_dict()` method on the model. That worked, but it mixed "what a Book *is*" (Model) with "how a Book *looks* in a response" (View). Moving it into `schemas/` separates those two jobs properly — which is MVC doing exactly what it promises. See [Serialization](README.md#7-serialization--turning-objects-into-json) in the main README.
 
 > ⚠️ **Wait — what about the routes in `main.py`?**
 > This trips up a lot of beginners. Flask calls its route functions **"view functions,"** which sounds like the "V" in MVC — but they're not quite the same thing. In *our* structure, the route functions act as a **thin entry point**: they receive the HTTP request and immediately hand off to the Controller. Think of them as the *front door*, and the `BookController` as the room where the work actually happens.
@@ -212,7 +214,8 @@ These all break the "one job per layer" rule — watch out for them:
 | "What *is* a Book / how is it stored?" | **Model** | `models/book.py` |
 | "How do I create/find/update/delete a book?" | **Controller** | `controllers/book_controller.py` |
 | "Which URL triggers what?" | **Routes** (front door) | `main.py` |
-| "What does the response look like?" | **View** | `to_dict()` + `jsonify()` |
+| "What does the response look like?" | **View** | `schemas/book_schema.py` |
+| "Is this user allowed in?" | **Controller** + route decorator | `controllers/user_controller.py` + `@jwt_required()` |
 
 **The one rule to remember:**
 

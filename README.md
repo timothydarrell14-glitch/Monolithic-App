@@ -1,6 +1,6 @@
-# 📚 Book API — Flask, SQLAlchemy ORM & Migrations
+# 📚 Book API — Flask, SQLAlchemy ORM, Migrations, Serialization & Auth
 
-Welcome! This project is a hands-on introduction to building a **Flask REST API** backed by a **real database**, using an **ORM (Flask-SQLAlchemy)** and **database migrations (Flask-Migrate)**.
+Welcome! This project is a hands-on introduction to building a **Flask REST API** backed by a **real database** — using an **ORM (Flask-SQLAlchemy)**, **database migrations (Flask-Migrate)**, **serialization (Marshmallow)**, and **authentication (JWT)**.
 
 Read this document top to bottom before touching the code — it explains not just *what* to run, but *why* each piece exists.
 
@@ -20,33 +20,48 @@ Read this document top to bottom before touching the code — it explains not ju
    - [Models](#4-models--your-tables-as-python-classes)
    - [Migrations](#5-migrations--version-control-for-your-database)
    - [The Controller Layer](#6-the-controller-layer--separation-of-concerns)
-   - [Serialization with `to_dict()`](#7-serialization--turning-objects-into-json-with-to_dict)
+   - [Serialization — Objects to JSON](#7-serialization--turning-objects-into-json)
+   - [Marshmallow Schemas](#8-marshmallow--serialization-that-scales)
+   - [Authentication — Hashing & JWT](#9-authentication--who-are-you-and-can-you-do-that)
 5. [Getting Started (Setup)](#-getting-started-setup)
 6. [The Migration Workflow](#-the-migration-workflow)
 7. [Playing With the ORM in the Flask Shell](#-playing-with-the-orm-in-the-flask-shell)
 8. [How It Works: Request → Route → Controller → Model](#-how-it-works-request--route--controller--model)
-9. [Your Turn: Stretch Goals 💪](#-your-turn-stretch-goals)
-10. [Running the React Client](#-running-the-react-client)
-11. [Command Cheat Sheet](#-command-cheat-sheet)
-12. [Troubleshooting](#-troubleshooting)
+9. [Using the Protected API (Register → Login → Token)](#-using-the-protected-api-register--login--token)
+10. [Your Turn: Stretch Goals 💪](#-your-turn-stretch-goals)
+11. [Running the React Client](#-running-the-react-client)
+12. [Command Cheat Sheet](#-command-cheat-sheet)
+13. [Troubleshooting](#-troubleshooting)
 
 ---
 
 ## 🎯 What This Project Is
 
-A simple **Book API** — you can list books, fetch one book, create, update, and delete books. In earlier sessions the data lived in a plain Python list (which vanished every time the server restarted 😅). In this session we upgraded to a **real SQLite database**, managed through an **ORM**, with schema changes tracked by **migrations**.
+A simple **Book API** — you can list books, fetch one book, create, update, and delete books. In earlier sessions the data lived in a plain Python list (which vanished every time the server restarted 😅). Since then it has grown up in stages:
+
+| Stage | What we added | Why |
+|-------|---------------|-----|
+| 1️⃣ | **ORM** (Flask-SQLAlchemy) | Real, persistent data — tables as Python classes |
+| 2️⃣ | **Migrations** (Flask-Migrate) | Change the schema safely, and share those changes with the team |
+| 3️⃣ | **Serialization** (Marshmallow) | Turn model objects into JSON without hand-writing dictionaries |
+| 4️⃣ | **Authentication** (JWT + password hashing) | Only logged-in users can touch the books |
+
+Each stage solved a problem the previous one created. Read them in order and the whole design will make sense.
 
 ---
 
 ## 🧰 Tech Stack
 
-| Layer      | Technology                | Purpose                                      |
-|------------|---------------------------|----------------------------------------------|
-| Backend    | Flask 3                   | Web framework — routes, requests, responses  |
-| ORM        | Flask-SQLAlchemy          | Talk to the database using Python classes    |
-| Migrations | Flask-Migrate (Alembic)   | Version-control the database schema          |
-| Database   | SQLite                    | Lightweight file-based database              |
-| Frontend   | React 19 + Vite           | Client app (in the `client/` folder)         |
+| Layer           | Technology                  | Purpose                                             |
+|-----------------|-----------------------------|-----------------------------------------------------|
+| Backend         | Flask 3                     | Web framework — routes, requests, responses         |
+| ORM             | Flask-SQLAlchemy            | Talk to the database using Python classes           |
+| Migrations      | Flask-Migrate (Alembic)     | Version-control the database schema                 |
+| Serialization   | Flask-Marshmallow           | Convert model objects into JSON automatically       |
+| Authentication  | Flask-JWT-Extended          | Issue and verify login tokens                       |
+| Password safety | Werkzeug (ships with Flask) | Hash passwords so we never store them in plain text |
+| Database        | SQLite                      | Lightweight file-based database                     |
+| Frontend        | React 19 + Vite             | Client app (in the `client/` folder)                |
 
 ---
 
@@ -55,24 +70,30 @@ A simple **Book API** — you can list books, fetch one book, create, update, an
 ```
 app/
 ├── main.py                  # App entry point + the ROUTES (URL → function mapping)
-├── extensions.py            # Shared extension instances (the `db` object lives here)
+├── extensions.py            # Shared extension instances (db, ma, jwt live here)
 ├── requirements.txt         # Python dependencies (pinned versions)
 ├── controllers/
-│   └── book_controller.py   # The CONTROLLER — the actual database logic for books
+│   ├── book_controller.py   # The CONTROLLER — the actual database logic for books
+│   └── user_controller.py   # AuthController — register & authenticate users
 ├── models/
-│   └── book.py              # The Book MODEL — our `books` table as a Python class
+│   ├── book.py              # The Book MODEL — our `books` table as a Python class
+│   └── user.py              # The User MODEL — plus password hashing helpers
+├── schemas/                 # 🔁 SERIALIZATION — Marshmallow schemas (objects ⇄ JSON)
+│   ├── book_schema.py
+│   └── user_schema.py
 ├── migrations/              # Auto-generated by Flask-Migrate — DO NOT edit by hand*
 │   ├── env.py               # Alembic runtime configuration
 │   ├── alembic.ini          # Alembic settings
 │   └── versions/            # ⭐ One file per schema change (migration scripts)
-│       └── fbc0340a7610_initial_migration.py
+│       ├── fbc0340a7610_initial_migration.py
+│       └── 983756e7202f_user_migration.py
 ├── instance/
 │   └── books.db             # The actual SQLite database file (NOT committed to git)
 ├── client/                  # React frontend (Vite)
 └── env/                     # Python virtual environment (NOT committed to git)
 ```
 
-> 🏗️ **Notice the layering:** a request flows `main.py` (route) → `controllers/book_controller.py` (logic) → `models/book.py` (the table). Each file has one job. We explain *why* in the [Controller Layer](#6-the-controller-layer--separation-of-concerns) section below.
+> 🏗️ **Notice the layering:** a request flows `main.py` (route) → `controllers/` (logic) → `models/` (the table), and the response comes back out through `schemas/` (serialization). Each file has one job. We explain *why* in the [Controller Layer](#6-the-controller-layer--separation-of-concerns) section below.
 
 > \* Exception: you *may* open a generated migration in `versions/` to review or tweak it before applying — in fact, reviewing generated migrations is a good habit.
 
@@ -180,7 +201,7 @@ Line by line:
 - **`primary_key=True`** — the unique identifier for each row. The database auto-increments it for us.
 - **`nullable=False`** — the database itself will refuse a book without a title or author. Validation at the database level is your last line of defense.
 - **`__repr__`** — purely for humans: when you print a `Book` in the shell you see `<Book Dune by Frank Herbert>` instead of `<Book object at 0x104f3d0>`. Great for debugging.
-- **`to_dict()`** — converts a `Book` object into a plain dictionary so it can be sent back as JSON. This one is important enough to get [its own section below](#7-serialization--turning-objects-into-json-with-to_dict).
+- **`to_dict()`** — converts a `Book` object into a plain dictionary so it can be sent back as JSON. This one is important enough to get [its own section below](#7-serialization--turning-objects-into-json).
 
 ### 5. Migrations — Version Control for Your Database
 
@@ -222,6 +243,7 @@ This is a design principle called **separation of concerns** — each part of th
 | **Route** (the "web" layer) | `main.py` | Deal with HTTP — read the request, pick a status code, send JSON back |
 | **Controller** (the "logic" layer) | `controllers/book_controller.py` | Talk to the database — the actual create/read/update/delete work |
 | **Model** (the "data" layer) | `models/book.py` | Describe *what* a Book is (its table and columns) |
+| **Schema** (the "translation" layer) | `schemas/book_schema.py` | Convert objects to JSON and back — see [Serialization](#7-serialization--turning-objects-into-json) |
 
 Think of it like a restaurant 🍽️:
 
@@ -257,17 +279,37 @@ def get_books():
 
 > 📌 **Notice the comments like `"SELECT * FROM books"` inside the controller methods.** Those strings do nothing at runtime — they're teaching notes showing the raw SQL each ORM call replaces. `Book.query.all()` *is* `SELECT * FROM books`, just written in Python.
 
-### 7. Serialization — Turning Objects into JSON with `to_dict()`
+### 7. Serialization — Turning Objects into JSON
 
 This is the concept behind a very common beginner error:
 
-```
+```text
 TypeError: Object of type Book is not JSON serializable
 ```
 
 **Why does this happen?** When you query the database, the ORM hands you back **`Book` objects** — full Python class instances. But `jsonify()` only knows how to convert **basic types**: `dict`, `list`, `str`, `int`, `bool`, `None`. It has no idea how to represent *your custom `Book` class* as JSON, so it gives up with that error.
 
-The fix is **serialization** — a translation step from "rich Python object" to "plain dictionary." We put that translation in one place, a `to_dict()` method on the model ([`models/book.py`](models/book.py)):
+**Serialization** is the translation step that fixes it:
+
+```text
+   DATABASE            ORM             SERIALIZATION          HTTP
+  ┌─────────┐      ┌──────────┐        ┌──────────┐      ┌──────────┐
+  │  a row  │ ───▶ │ a Book   │ ─────▶ │ a dict   │ ───▶ │   JSON   │
+  │ in SQL  │      │  object  │        │ {"id":1} │      │  string  │
+  └─────────┘      └──────────┘        └──────────┘      └──────────┘
+                    (reading)          (responding)      (over the wire)
+```
+
+Two words you'll hear constantly — learn them now:
+
+| Term | Direction | In plain English |
+|------|-----------|------------------|
+| **Serialize** (`dump`) | object ➡️ dict/JSON | "Getting data *out* of the app" — what we send in a response |
+| **Deserialize** (`load`) | dict/JSON ➡️ object | "Taking data *in*" — what we do with `request.json` |
+
+#### Approach A: a hand-written `to_dict()`
+
+The simplest version — a method on the model that returns a plain dictionary ([`models/book.py`](models/book.py)):
 
 ```python
 def to_dict(self):
@@ -278,19 +320,262 @@ def to_dict(self):
     }
 ```
 
-Now any route can turn a `Book` into JSON-ready data:
+Then any route can use it:
 
 ```python
-# ONE book  → one dict
-return jsonify(book.to_dict())
-
-# MANY books → a list of dicts (loop over each object)
-return jsonify([book.to_dict() for book in books])
+return jsonify(book.to_dict())                        # ONE book  → one dict
+return jsonify([book.to_dict() for book in books])    # MANY books → a list of dicts
 ```
 
-> 💡 **Why a method on the model, instead of building the dict inside every route?** Because you'd otherwise repeat `{"id": ..., "title": ..., "author": ...}` in five different places. Put it once on the model, and every route — plus any future code — reuses it. When you add a new column later, you update `to_dict()` in *one* spot.
+> 💡 **Why a method on the model instead of building the dict inside every route?** You'd otherwise repeat `{"id": ..., "title": ..., "author": ...}` in five different places. Put it once on the model and every route reuses it — add a column later, and you update *one* spot.
 
-**The mental model:** the ORM turns *rows → objects* when reading; `to_dict()` turns *objects → dicts* when responding. JSON is just how those dicts travel over HTTP to the React client.
+This works perfectly, and it's the clearest way to *see* what serialization actually is. But it doesn't scale — which is exactly why we introduced Marshmallow next.
+
+### 8. Marshmallow — Serialization That Scales
+
+Hand-writing `to_dict()` is fine for a 3-column model. Now imagine 15 columns, 6 models, nested relationships, and validation rules. You'd be writing (and maintaining) hundreds of lines of dictionary-building by hand.
+
+**Marshmallow** is a library that does it for you. **Flask-Marshmallow** integrates it with Flask, and **marshmallow-sqlalchemy** teaches it to read your SQLAlchemy models directly.
+
+Look at [`schemas/book_schema.py`](schemas/book_schema.py) — the *entire* thing:
+
+```python
+from extensions import ma
+from models.book import Book
+
+class BookSchema(ma.SQLAlchemyAutoSchema):
+    class Meta:
+        model = Book
+        load_instance = True   # deserialize straight back into a Book object
+
+book_schema = BookSchema()              # for ONE book
+books_schema = BookSchema(many=True)    # for a LIST of books
+```
+
+Line by line:
+
+- **`ma.SQLAlchemyAutoSchema`** — the "**Auto**" is the magic. It *inspects your model* and generates a matching field for every column automatically. Add a `year_published` column to `Book` and the schema picks it up with **zero changes here**.
+- **`model = Book`** — tells the schema which model to mirror.
+- **`load_instance = True`** — when *deserializing*, give me back a real `Book` object rather than a plain dict.
+- **`book_schema` / `books_schema`** — we create the instances once, at import time, and reuse them everywhere. `many=True` means "expect a list."
+
+#### Using it: `dump()` and `load()`
+
+Just two methods to remember:
+
+```python
+book_schema.dump(book)      # Book object  → dict          (serialize)
+books_schema.dump(books)    # [Book, Book] → [dict, dict]  (serialize many)
+book_schema.load(data)      # dict         → Book object   (deserialize)
+```
+
+Which is why the routes in [`main.py`](main.py) now look like this:
+
+```python
+@app.route('/books')
+def get_books():
+    books = BookController.get_all_books()
+    return jsonify(books_schema.dump(books))     # a list of Book objects → JSON
+```
+
+Compare the two approaches side by side:
+
+| | Manual `to_dict()` | Marshmallow schema |
+|---|---|---|
+| **Setup effort** | None — just a method | Install + a schema file per model |
+| **Adding a column** | Edit `to_dict()` by hand | ✅ Automatic |
+| **Validation** | You write it yourself | ✅ Built in (`load()` validates) |
+| **Deserializing JSON → object** | You write it yourself | ✅ `load()` does it |
+| **Nested relationships** | Painful | ✅ Supported |
+| **Best for** | Learning the concept; tiny models | Real projects |
+
+> 🎓 **We kept `to_dict()` on the `Book` model on purpose.** It's still there so you can read it and understand *what Marshmallow is doing for you under the hood*. Marshmallow isn't magic — it's an automated `to_dict()`.
+
+#### ⚠️ A serialization trap: leaking data
+
+`SQLAlchemyAutoSchema` serializes **every column it finds** — including ones you never meant to expose. Look at [`schemas/user_schema.py`](schemas/user_schema.py): the `User` model has a `password` column, so `user_schema.dump(user)` will happily include the **password hash** in the response. 😬
+
+The fix is to tell the schema to keep it private:
+
+```python
+class UserSchema(ma.SQLAlchemyAutoSchema):
+    class Meta:
+        model = User
+        load_instance = True
+        exclude = ("password",)      # never send it out
+        # or:  load_only = ("password",)  → accept it on input, never output it
+```
+
+> 📌 **The lesson:** convenience features do exactly what you tell them to. *Always look at what your schema actually returns* before shipping it. Fixing this one is a [stretch goal](#-your-turn-stretch-goals) below.
+
+### 9. Authentication — "Who Are You, and Can You Do That?"
+
+Right now every book route is **protected**: you can't list, create, update, or delete books without proving who you are. Here's how that works.
+
+First, two words people mix up constantly:
+
+| Term | Question it answers | Our implementation |
+|------|--------------------|--------------------|
+| **Authentication** (AuthN) | *Who are you?* | Register + login with a username & password |
+| **Authorization** (AuthZ) | *Are you allowed to do this?* | `@jwt_required()` — "you must be logged in" |
+
+#### Step 1: Never store passwords in plain text
+
+If your database is ever leaked and it contains raw passwords, every user is compromised — including on *other sites*, because people reuse passwords. So we never store the password itself. We store a **hash**.
+
+A **hash** is a one-way transformation:
+
+```text
+  "JohnDoe123!"  ──hash──▶  "scrypt:32768:8:1$Yh2...$4f9c1a..."
+  "JohnDoe123!"  ◀──???──   ❌ impossible to reverse
+```
+
+You cannot un-hash it. So how do we ever check a login? We hash the *incoming* attempt and compare the two hashes. Look at [`models/user.py`](models/user.py):
+
+```python
+from werkzeug.security import generate_password_hash, check_password_hash
+
+class User(db.Model):
+    __tablename__ = "users"
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password = db.Column(db.String(200), nullable=False)   # stores the HASH, not the password
+
+    def set_password(self, password):
+        self.password = generate_password_hash(password)   # hash on the way in
+
+    def check_password(self, password):
+        return check_password_hash(self.password, password)  # hash + compare
+```
+
+Notice:
+
+- **`unique=True`** on `username` and `email` — the database itself refuses duplicates.
+- **`db.String(200)`** for the password — hashes are long. Sizing this too small silently truncates the hash and *every login fails*. 🐛
+- These two methods live **on the model** because they're rules about what a User *is* — exactly the [separation of concerns](#6-the-controller-layer--separation-of-concerns) idea from earlier.
+
+The [`AuthController`](controllers/user_controller.py) then uses them:
+
+```python
+class AuthController:
+    @classmethod
+    def register_user(cls, user_data):
+        new_user = User(username=user_data["username"], email=user_data["email"])
+        new_user.set_password(user_data["password"])    # hash it before saving
+        db.session.add(new_user)
+        db.session.commit()
+        return new_user
+
+    @classmethod
+    def authenticate_user(cls, username, password):
+        user = User.query.filter_by(username=username).first()
+        if user and user.check_password(password):
+            return user
+        return None      # wrong user OR wrong password — don't say which
+```
+
+> 🔐 **Why return a vague `None`?** If you told an attacker *"that username doesn't exist"* vs *"wrong password,"* you'd be handing them a tool to discover valid usernames. Both failures should look identical from the outside — which is why the route replies with one generic `"Invalid username or password"`.
+
+#### Step 2: JWT — staying logged in
+
+HTTP is **stateless**: the server forgets you the instant a request finishes. So after a successful login, how does the *next* request prove it's still you? You could send your password every time — a terrible idea. Instead we hand out a **token**.
+
+A **JWT** (JSON Web Token, pronounced "jot") is a string with three dot-separated parts:
+
+```text
+   header  .            payload            .        signature
+  eyJhbGci . eyJzdWIiOiIxIiwidXNlcm5hbWUi . 4f2a9c8b1d3e...
+   ─────┬──   ────────────┬──────────────     ──────┬──────
+   algorithm      your data (claims)          proof it's genuine
+   used                                       (signed with our secret key)
+```
+
+> ⚠️ **A JWT is signed, NOT encrypted.** Anyone can decode the payload and read it — paste one into [jwt.io](https://jwt.io) and see for yourself. The signature only guarantees it hasn't been *tampered with*. **Never put anything secret in a token.**
+
+Think of it like a **wristband at a concert** 🎟️ — you prove your identity once at the gate, get a band that's hard to fake, and after that you just flash the band.
+
+The login route in [`main.py`](main.py) issues one:
+
+```python
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.json
+    user = AuthController.authenticate_user(
+        username=data.get("username"), password=data.get("password")
+    )
+    if user:
+        token = create_access_token(
+            identity=str(user.id),              # WHO the token belongs to
+            additional_claims={                 # extra info baked into the payload
+                "username": user.username,
+                "email": user.email,
+                "id": user.id
+            }
+        )
+        return jsonify({"message": "Login successful", "token": token}), 200
+    return jsonify({"error": "Invalid username or password"}), 401
+```
+
+- **`identity`** is the token's subject — who it represents. Note the `str(...)`: newer versions of Flask-JWT-Extended require the identity to be a **string**, and passing an `int` raises a confusing `Subject must be a string` error.
+- **`additional_claims`** are extra key/value pairs stored in the payload, so the API can read the username without another database query. *(Remember: readable by anyone — nothing sensitive here.)*
+- **`401 Unauthorized`** is the correct status code for a failed login.
+
+#### Step 3: Protecting routes with `@jwt_required()`
+
+One decorator locks a route:
+
+```python
+@app.route('/books')
+@jwt_required()            # ← must present a valid token, or get a 401
+def get_books():
+    books = BookController.get_all_books()
+    return jsonify(books_schema.dump(books))
+```
+
+> ⚠️ **Decorator order matters.** `@app.route(...)` goes **on top**, `@jwt_required()` directly above the function. Flip them and the protection silently does nothing.
+
+The client sends the token on every subsequent request in the `Authorization` header, using the **Bearer** scheme:
+
+```text
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6...
+```
+
+And inside a protected route you can find out *who* is calling:
+
+```python
+current_user_id = get_jwt_identity()     # → "3"  (the identity we put in the token)
+```
+
+Here's the whole flow:
+
+```text
+  1. POST /register  {username, email, password}
+        └─▶ password is HASHED, user saved                        ✅ 201
+
+  2. POST /login     {username, password}
+        └─▶ hash compared, JWT created and returned               ✅ 200 + token
+
+  3. GET  /books     Authorization: Bearer <token>
+        └─▶ @jwt_required() verifies the signature                ✅ 200 + books
+            (no token / bad token / expired token)                ❌ 401
+```
+
+#### 🔑 The secret key
+
+The signature is created using a secret key from [`main.py`](main.py):
+
+```python
+app.config['JWT_SECRET_KEY'] = 'your_jwt_secret_key'
+```
+
+**This is fine for learning and a serious problem in production.** Anyone who knows the key can forge a token for *any* user. In a real app you would:
+
+1. Generate a strong random key — `python -c "import secrets; print(secrets.token_hex(32))"`
+2. Store it in a `.env` file (already in our [`.gitignore`](.gitignore)) and read it with `os.environ.get("JWT_SECRET_KEY")`
+3. **Never commit it to git.**
+
+> 🧠 **The mental model to carry forward:** *hashing* protects passwords **at rest** (in the database), and *tokens* protect identity **in transit** (between requests). They solve two different problems, and you need both.
 
 ---
 
@@ -323,7 +608,7 @@ You'll know it worked when your prompt shows `(env)`.
 pip install -r requirements.txt
 ```
 
-This installs Flask, Flask-SQLAlchemy, Flask-Migrate, and everything they depend on — at the exact versions pinned in [`requirements.txt`](requirements.txt).
+This installs Flask, Flask-SQLAlchemy, Flask-Migrate, Flask-Marshmallow, Flask-JWT-Extended, and everything they depend on — at the exact versions pinned in [`requirements.txt`](requirements.txt).
 
 ### 4. Create the database by applying migrations
 
@@ -334,7 +619,7 @@ export FLASK_APP=main.py       # tells the `flask` command where the app is
 flask db upgrade
 ```
 
-`flask db upgrade` runs every migration in `migrations/versions/` in order, creating `instance/books.db` with the `books` table. This is the payoff of migrations: **anyone who clones the repo can reconstruct the exact same database schema with one command.**
+`flask db upgrade` runs every migration in `migrations/versions/` in order, creating `instance/books.db` with the `books` **and** `users` tables. This is the payoff of migrations: **anyone who clones the repo can reconstruct the exact same database schema with one command.**
 
 ### 5. Run the server
 
@@ -343,6 +628,10 @@ python main.py
 ```
 
 Visit http://127.0.0.1:5000/ — you should see the welcome message. 🎉
+
+The book endpoints, however, are **locked** 🔒 — you'll need to register and log in first. Jump to [Using the Protected API](#-using-the-protected-api-register--login--token) for the walkthrough.
+
+> 🔑 **A note on the secret key.** [`main.py`](main.py) sets `JWT_SECRET_KEY = 'your_jwt_secret_key'` so the project runs the moment you clone it. That's a **learning-only placeholder** — see [Authentication](#9-authentication--who-are-you-and-can-you-do-that) for why a real app must load this from an environment variable instead.
 
 ---
 
@@ -448,17 +737,20 @@ db.session.commit()
 
 The API is fully wired up. Let's trace **one request end to end** so you understand how the layers cooperate. Suppose the React app asks for every book:
 
+```text
+GET /books      Authorization: Bearer <token>
 ```
-GET /books
-```
+
+**Step 0 — The gatekeeper.** `@jwt_required()` runs *before* the function body. No valid token → the request stops right here with a `401` and the controller is never reached.
 
 **Step 1 — The route** ([`main.py`](main.py)) receives the request. Its only jobs are to call the controller and shape the HTTP response:
 
 ```python
 @app.route('/books')
+@jwt_required()
 def get_books():
-    books = BookController.get_all_books()          # ask the controller
-    return jsonify([book.to_dict() for book in books])   # serialize + respond
+    books = BookController.get_all_books()      # ask the controller
+    return jsonify(books_schema.dump(books))    # serialize + respond
 ```
 
 **Step 2 — The controller** ([`controllers/book_controller.py`](controllers/book_controller.py)) does the database work through the ORM:
@@ -469,46 +761,110 @@ def get_all_books(cls):
     return Book.query.all()      # → SELECT * FROM books  →  a list of Book objects
 ```
 
-**Step 3 — The model** ([`models/book.py`](models/book.py)) defines what each `Book` is, and how it becomes JSON via `to_dict()`.
+**Step 3 — The model** ([`models/book.py`](models/book.py)) defines what each `Book` is — its table and columns.
 
-**Step 4 — Back in the route**, `to_dict()` turns each object into a plain dict, and `jsonify` sends it back as JSON. Done. ✅
+**Step 4 — The schema** ([`schemas/book_schema.py`](schemas/book_schema.py)) serializes: `books_schema.dump(books)` turns the list of `Book` objects into a list of plain dicts, which `jsonify` sends back as JSON. Done. ✅
 
-### The full CRUD map
+```text
+Request ─▶ @jwt_required ─▶ route ─▶ controller ─▶ model ─▶ DB
+                                                     │
+Response ◀── jsonify ◀── schema.dump() ◀─────────────┘
+```
 
-Every endpoint follows the same route → controller → model path:
+### The full API map
+
+Every book endpoint follows the same route → controller → model → schema path. 🔒 = requires a token.
 
 | Method & URL | Route (`main.py`) | Controller method | What it does |
 |---|---|---|---|
-| `GET /books` | `get_books` | `get_all_books()` | List all books |
-| `GET /books/<id>` | `get_book` | `get_book_by_id(id)` | One book, or `404` |
-| `POST /books` | `create_book` | `create_book(data)` | Insert, return `201` |
-| `PUT /books/<id>` | `update_book` | `update_book(id, data)` | Update, or `404` |
-| `DELETE /books/<id>` | `delete_book` | `delete_book(id)` | Delete, or `404` |
+| `POST /register` | `register` | `AuthController.register_user(data)` | Hash password, create user, `201` |
+| `POST /login` | `login` | `AuthController.authenticate_user(...)` | Verify password, return a JWT, or `401` |
+| 🔒 `GET /books` | `get_books` | `get_all_books()` | List all books |
+| 🔒 `GET /books/<id>` | `get_book` | `get_book_by_id(id)` | One book, or `404` |
+| 🔒 `POST /books` | `create_book` | `create_book(data)` | Insert, return `201` |
+| 🔒 `PUT /books/<id>` | `update_book` | `update_book(id, data)` | Update, or `404` |
+| 🔒 `DELETE /books/<id>` | `delete_book` | `delete_book(id)` | Delete, or `404` |
 
-### Try it yourself
+---
 
-With the server running (`python main.py`), open a second terminal:
+## 🔐 Using the Protected API (Register → Login → Token)
+
+Because every book route is protected, you can no longer just `curl /books` — you'd get a `401`. Here's the full flow. With the server running (`python main.py`), open a second terminal.
+
+### 1. Register a user
 
 ```bash
+curl -X POST http://127.0.0.1:5000/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"jane","email":"jane@example.com","password":"SuperSecret123!"}'
+```
+
+➡️ `201 {"message": "User registered successfully"}` — and in the database, the `password` column holds a **hash**, never `SuperSecret123!`.
+
+### 2. Log in to get a token
+
+```bash
+curl -X POST http://127.0.0.1:5000/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"jane","password":"SuperSecret123!"}'
+```
+
+➡️ `200 {"message": "Login successful", "token": "eyJhbGciOiJIUzI1NiIs..."}`
+
+### 3. Call a protected route with the token
+
+Copy the token and send it in the `Authorization` header:
+
+```bash
+curl http://127.0.0.1:5000/books \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
+```
+
+💡 **Tip — save yourself the copy-paste.** Store the token in a shell variable:
+
+```bash
+TOKEN=$(curl -s -X POST http://127.0.0.1:5000/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"jane","password":"SuperSecret123!"}' \
+  | python3 -c "import sys, json; print(json.load(sys.stdin)['token'])")
+
+echo $TOKEN     # check it worked
+```
+
+Now every request is short:
+
+```bash
+# List all books
+curl http://127.0.0.1:5000/books -H "Authorization: Bearer $TOKEN"
+
 # Create a book
 curl -X POST http://127.0.0.1:5000/books \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"title":"Dune","author":"Frank Herbert"}'
 
-# List all books
-curl http://127.0.0.1:5000/books
-
 # Get one book
-curl http://127.0.0.1:5000/books/1
+curl http://127.0.0.1:5000/books/1 -H "Authorization: Bearer $TOKEN"
 
 # Update a book
 curl -X PUT http://127.0.0.1:5000/books/1 \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"title":"Dune (Deluxe Edition)"}'
 
 # Delete a book
-curl -X DELETE http://127.0.0.1:5000/books/1
+curl -X DELETE http://127.0.0.1:5000/books/1 -H "Authorization: Bearer $TOKEN"
 ```
+
+### 4. Prove the lock works
+
+```bash
+curl -i http://127.0.0.1:5000/books        # no token at all
+```
+
+➡️ `401 {"msg": "Missing Authorization Header"}` — exactly what `@jwt_required()` is for. 🎉
+
+> 🧪 **Using Postman or Thunder Client instead?** Set **Authorization → Type: Bearer Token** and paste the token — it builds the same header for you.
 
 ---
 
@@ -516,10 +872,13 @@ curl -X DELETE http://127.0.0.1:5000/books/1
 
 The core API works — now extend it. Each of these practices a concept from above:
 
-- [ ] **Add input validation.** Reject a `POST` with a missing `title` or `author` and return a helpful `400 Bad Request` instead of letting it crash. *(Practices: routes + HTTP status codes.)*
-- [ ] **Add a `year_published` column.** Run the full migration workflow — edit the model, `flask db migrate`, `flask db upgrade` — then include it in `to_dict()`. *(Practices: migrations + serialization.)*
+- [ ] **🚨 Stop leaking the password hash.** Add `exclude = ("password",)` to `UserSchema.Meta`, then return the serialized user from `/register` and confirm the hash is gone. *(Practices: serialization + thinking about what you expose.)*
+- [ ] **Add input validation.** Reject a `POST` with a missing `title` or `author` and return a helpful `400 Bad Request` instead of letting it crash. Try it two ways: a manual `if` check, then Marshmallow's `load()`. *(Practices: routes, status codes, deserialization.)*
+- [ ] **Handle duplicate registrations.** Right now registering the same username twice raises an `IntegrityError` and returns a 500. Catch it and return a clean `409 Conflict`. *(Practices: database constraints + error handling.)*
+- [ ] **Add a `year_published` column.** Run the full migration workflow — edit the model, `flask db migrate`, `flask db upgrade`. Notice you *don't* have to touch `BookSchema`. *(Practices: migrations + why auto-schemas are useful.)*
+- [ ] **Move the secret key out of the code.** Read `JWT_SECRET_KEY` from a `.env` file instead of hard-coding it. *(Practices: configuration + not committing secrets.)*
+- [ ] **Track who created a book.** Use `get_jwt_identity()` inside `create_book` to record the logged-in user's id on the book. *(Practices: JWT claims + relationships.)*
 - [ ] **Add a search endpoint.** `GET /books/search?author=Achebe` using `Book.query.filter(...)`. *(Practices: the ORM query API + the controller layer.)*
-- [ ] **Add a second model.** Create an `Author` model in its own file with its own controller, and link books to authors. *(Practices: everything together.)*
 - [ ] **Write a test.** Because the logic lives in `BookController`, you can test `get_all_books()` directly — no web server needed. *(Practices: why we separated the layers.)*
 
 > 🧭 For each goal, follow the same layering: change the **model** if the data shape changes, put the logic in the **controller**, and keep the **route** thin.
@@ -558,6 +917,21 @@ flask db upgrade                   # apply pending migrations
 flask db downgrade                 # undo the last migration
 flask db history                   # list all migrations
 flask db current                   # show the DB's current migration
+
+# Auth (see the Protected API section for the full flow)
+curl -X POST localhost:5000/register -H "Content-Type: application/json" \
+     -d '{"username":"jane","email":"jane@example.com","password":"SuperSecret123!"}'
+curl -X POST localhost:5000/login    -H "Content-Type: application/json" \
+     -d '{"username":"jane","password":"SuperSecret123!"}'
+curl localhost:5000/books -H "Authorization: Bearer $TOKEN"
+```
+
+**Serialization quick reference:**
+
+```python
+book_schema.dump(book)      # ONE object  → dict           (serialize)
+books_schema.dump(books)    # LIST         → list of dicts  (serialize many)
+book_schema.load(data)      # dict         → Book object    (deserialize + validate)
 ```
 
 ---
@@ -569,7 +943,13 @@ flask db current                   # show the DB's current migration
 | `Error: Could not locate a Flask application` | You forgot `export FLASK_APP=main.py` |
 | `No changes in schema detected` when running `migrate` | Your model isn't imported in `main.py` — Flask-Migrate can only see models that get imported. Also check you actually changed the model. |
 | `no such table: books` | You never ran `flask db upgrade` — the migration exists but was never applied |
-| `TypeError: Object of type Book is not JSON serializable` | You passed a `Book` object (or a list of them) straight to `jsonify`. Convert first with `.to_dict()` — see [Serialization](#7-serialization--turning-objects-into-json-with-to_dict) |
+| `TypeError: Object of type Book is not JSON serializable` | You passed a `Book` object (or a list of them) straight to `jsonify`. Serialize it first — `book_schema.dump(book)` or `.to_dict()`. See [Serialization](#7-serialization--turning-objects-into-json) |
+| `401 {"msg": "Missing Authorization Header"}` | The route is protected by `@jwt_required()` and you sent no token. Log in first, then send `Authorization: Bearer <token>` |
+| `422 {"msg": "Subject must be a string"}` | `create_access_token(identity=...)` was given a non-string. Use `str(user.id)` |
+| `401 {"msg": "Signature verification failed"}` | The token wasn't signed with this app's `JWT_SECRET_KEY` (often: you restarted with a different key, or copied the token wrong) |
+| Login always fails even with the right password | Check the `password` column is long enough (`db.String(200)`) — a short column silently truncates the hash. Also confirm `set_password()` was used at registration, not a direct assignment |
+| The password hash shows up in an API response | `SQLAlchemyAutoSchema` exposes every column. Add `exclude = ("password",)` to `UserSchema.Meta` |
+| `no such table: users` | You added the `User` model but never ran `flask db migrate` + `flask db upgrade` |
 | Changes to a model not showing in the DB | You ran `migrate` but forgot `upgrade` |
 | `ModuleNotFoundError: No module named 'flask'` | Your venv isn't activated (`source env/bin/activate`) |
 | Weird import errors mentioning `main` and `book` | Circular import — make sure models import `db` from `extensions`, never from `main` |
@@ -577,4 +957,12 @@ flask db current                   # show the DB's current migration
 
 ---
 
-Happy coding! 🎉 Remember: the ORM writes the SQL, but *you* should always understand what SQL it's writing.
+Happy coding! 🎉
+
+Three things to carry with you:
+
+1. The **ORM writes the SQL** — but you should always understand what SQL it's writing.
+2. **Marshmallow writes the `to_dict()`** — but you should always know what it's putting in the response.
+3. **JWT proves identity** — but a token is readable by anyone, so never put a secret inside one.
+
+Every tool here removes boilerplate, not understanding. Know what each one is doing for you. 🚀

@@ -1,7 +1,8 @@
-from flask import Flask, json, jsonify, request
+from flask import Flask, jsonify, request
 from extensions import db
 from flask_migrate import Migrate
 from controllers.book_controller import BookController
+# from models.book import Book
 
 app = Flask(__name__)
 # Configure the database URI (replace with your actual database URI)
@@ -13,8 +14,6 @@ db.init_app(app)
 
 # initialize Flask-Migrate with the app and database
 migrate = Migrate(app, db)
-
-from models.book import Book
 
 @app.route('/')
 def home():

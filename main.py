@@ -2,10 +2,24 @@ from flask import Flask, jsonify, request
 from extensions import db, ma, jwt
 from flask_migrate import Migrate
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
+
+# IMPORT ORDER MATTERS HERE — models BEFORE schemas.
+# A Marshmallow SQLAlchemyAutoSchema inspects its model the moment the schema
+# class is created, which forces SQLAlchemy to resolve every string-based
+# relationship ('Author', 'Tag', 'book_tags'). If those classes haven't been
+# imported yet, you get:
+#   InvalidRequestError: expression 'Author' failed to locate a name ('Author')
+# Importing the models package first registers all of them in one line.
+from models import Book, User, Author, Tag
+
 from controllers.book_controller import BookController
 from controllers.user_controller import AuthController
+from controllers.author_controller import AuthorController
+from controllers.tag_controller import TagController
 from schemas.book_schema import book_schema, books_schema
 from schemas.user_schema import user_schema, users_schema
+from schemas.author_schema import author_schema, authors_schema
+from schemas.tag_schema import tag_schema, tags_schema
 
 app = Flask(__name__)
 # Configure the database URI (replace with your actual database URI)
@@ -21,9 +35,6 @@ jwt.init_app(app)
 
 # initialize Flask-Migrate with the app and database
 migrate = Migrate(app, db)
-
-from models.book import Book
-from models.user import User
 
 @app.route('/')
 def home():
@@ -61,6 +72,7 @@ def login():
     return jsonify({"error": "Invalid username or password"}), 401
 
 ############################ BOOK ROUTES #####################
+
 @app.route('/books')
 @jwt_required()
 def get_books():
@@ -104,6 +116,124 @@ def delete_book(book_id):
         return jsonify({"message": "Book deleted successfully"}), 204
     else: 
         return jsonify({"error": "Book not found"}), 404
+
+############################ AUTHOR ROUTES #####################
+
+@app.route('/authors')
+@jwt_required()
+def get_authors():
+    authors = AuthorController.get_all_authors()
+    return jsonify(authors_schema.dump(authors))
+
+@app.route('/authors/<int:author_id>')
+@jwt_required()
+def get_author(author_id):
+    author = AuthorController.get_author_by_id(author_id)
+
+    if author:
+        return jsonify(author_schema.dump(author)), 200
+
+    return jsonify({"error": "Author not found"}), 404
+
+@app.route('/authors', methods=['POST'])
+@jwt_required()
+def create_author():
+    new_author = AuthorController.create_author(request.json)
+    return jsonify(author_schema.dump(new_author)), 201
+
+@app.route('/authors/<int:author_id>', methods=['PUT'])
+@jwt_required()
+def update_author(author_id):
+    updated_author = AuthorController.update_author(author_id, request.json)
+
+    if updated_author:
+        return jsonify(author_schema.dump(updated_author)), 200
+
+    return jsonify({"error": "Author not found"}), 404
+
+@app.route('/authors/<int:author_id>', methods=['DELETE'])
+@jwt_required()
+def delete_author(author_id):
+    # ⚠️ Remember the cascade: this deletes the author AND all their books.
+    if AuthorController.delete_author(author_id):
+        return jsonify({"message": "Author deleted successfully"}), 204
+
+    return jsonify({"error": "Author not found"}), 404
+
+@app.route('/authors/<int:author_id>/books')
+@jwt_required()
+def get_author_books(author_id):
+    # A NESTED route: "the books belonging to THIS author."
+    # Reading the URL left to right tells you the relationship.
+    books = AuthorController.get_books_for_author(author_id)
+
+    # `is None` matters here — an author with zero books returns an empty
+    # list, and `if not books` would wrongly call that a 404.
+    if books is None:
+        return jsonify({"error": "Author not found"}), 404
+
+    return jsonify(books_schema.dump(books)), 200
+
+############################ TAG ROUTES #####################
+
+@app.route('/tags')
+@jwt_required()
+def get_tags():
+    tags = TagController.get_all_tags()
+    return jsonify(tags_schema.dump(tags))
+
+@app.route('/tags/<int:tag_id>')
+@jwt_required()
+def get_tag(tag_id):
+    tag = TagController.get_tag_by_id(tag_id)
+
+    if tag:
+        return jsonify(tag_schema.dump(tag)), 200
+
+    return jsonify({"error": "Tag not found"}), 404
+
+@app.route('/tags', methods=['POST'])
+@jwt_required()
+def create_tag():
+    new_tag = TagController.create_tag(request.json)
+
+    # The controller returns None when the name is already taken.
+    # 409 CONFLICT is the right status code — the request was well-formed,
+    # it just clashes with the current state of the server.
+    if new_tag is None:
+        return jsonify({"error": "A tag with that name already exists"}), 409
+
+    return jsonify(tag_schema.dump(new_tag)), 201
+
+@app.route('/tags/<int:tag_id>', methods=['PUT'])
+@jwt_required()
+def update_tag(tag_id):
+    updated_tag = TagController.update_tag(tag_id, request.json)
+
+    if updated_tag:
+        return jsonify(tag_schema.dump(updated_tag)), 200
+
+    return jsonify({"error": "Tag not found"}), 404
+
+@app.route('/tags/<int:tag_id>', methods=['DELETE'])
+@jwt_required()
+def delete_tag(tag_id):
+    # Safe: only the book_tags pairings go away, never the books themselves.
+    if TagController.delete_tag(tag_id):
+        return jsonify({"message": "Tag deleted successfully"}), 204
+
+    return jsonify({"error": "Tag not found"}), 404
+
+@app.route('/tags/<int:tag_id>/books')
+@jwt_required()
+def get_tag_books(tag_id):
+    # The many-to-many, walked in the other direction.
+    books = TagController.get_books_for_tag(tag_id)
+
+    if books is None:
+        return jsonify({"error": "Tag not found"}), 404
+
+    return jsonify(books_schema.dump(books)), 200
 
 @app.route('/about')
 def about():
